@@ -14,18 +14,17 @@
 测试
 -------
 
-```bash
+.. code:: bash
 
-git clone https://github.com/LuoZijun/rust-image.git
-cd rust-image
-curl "https://avatars0.githubusercontent.com/u/717717" -o ./output.jpg
-ffmpeg -i output.jpg output.png
-ffmpeg -i output.jpg output.pam
+    git clone https://github.com/LuoZijun/rust-image.git
+    cd rust-image
+    curl "https://avatars0.githubusercontent.com/u/717717" -o ./output.jpg
+    ffmpeg -i output.jpg output.png
+    ffmpeg -i output.jpg output.pam
 
-cargo run --bin png
-cargo run --bin pam
+    cargo run --bin png
+    cargo run --bin pam
 
-```
 
 
 参考
