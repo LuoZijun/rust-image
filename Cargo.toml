@@ -1,0 +1,23 @@
+[package]
+name = "image"
+version = "0.1.0"
+authors = ["luozijun <luozijun.assistant@gmail.com>"]
+
+[[bin]]
+name = "png"
+path = "src/png.rs"
+
+[[bin]]
+name = "pam"
+path = "src/pam.rs"
+
+
+[dependencies]
+crc = "1.8.1"
+inflate = "0.4.3"
+flate2 = "1.0.2"
+byteorder = "1.2.4"
+num_cpus = "1.8.0"
+
+
+
