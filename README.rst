@@ -30,6 +30,7 @@
 参考
 -------
 
-`Portable Network Graphics (PNG) Specification (Second Edition) <https://www.w3.org/TR/PNG/>`
+`Portable Network Graphics (PNG) Specification (Second Edition) <https://www.w3.org/TR/PNG/>`_
+
 `Portable Arbitrary Map (PAM) <http://netpbm.sourceforge.net/doc/pam.html>`_
 
