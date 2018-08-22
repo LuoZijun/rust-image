@@ -104,7 +104,7 @@ impl<RS: Read + Seek> Decoder<RS> {
         }
         None
     }
-    
+
     pub fn read_header(&mut self) -> Result<Header, Error> {
         assert_eq!(self.state, State::Signature);
 
@@ -264,11 +264,14 @@ fn main(){
     let mut file = File::open(filepath).unwrap();
     let mut decoder = Decoder::new(file.try_clone().unwrap());
 
+    let mut signature: Option<[u8; 2]> = None;
+
     for elem in decoder {
         match elem {
-            Element::Signature(signature) => {
-                println!("Signature: {:?}", signature);
-                assert_eq!(signature == PPM_BINARY_MAGIC_NUMBER || signature == PPM_ASCII_MAGIC_NUMBER, true);
+            Element::Signature(_signature) => {
+                println!("Signature: {:?}", _signature);
+                assert_eq!(_signature == PPM_BINARY_MAGIC_NUMBER || _signature == PPM_ASCII_MAGIC_NUMBER, true);
+                signature = Some(_signature);
             },
             Element::Header(header) => {
                 println!("{:?}", header);
@@ -276,10 +279,12 @@ fn main(){
             Element::Data(data) => {
                 println!("{:?}", data);
 
-                let mut pixels: Vec<u8> = vec![0u8; data.length as usize];
-                file.seek(SeekFrom::Start(data.offset)).unwrap();
-                assert_eq!(file.read(&mut pixels).unwrap(), data.length as usize);
-                println!("{:?}", pixels);
+                if signature == Some(PPM_BINARY_MAGIC_NUMBER) {
+                    let mut pixels: Vec<u8> = vec![0u8; data.length as usize];
+                    file.seek(SeekFrom::Start(data.offset)).unwrap();
+                    assert_eq!(file.read(&mut pixels).unwrap(), data.length as usize);
+                    println!("{:?}", pixels);
+                }
                 
                 println!("Pixel len: {:?} Bytes", data.length);
             },
