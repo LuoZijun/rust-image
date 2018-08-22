@@ -88,24 +88,28 @@ impl<RS: Read + Seek> Decoder<RS> {
         Err(Error::InvalidSignature)
     }
 
-    pub fn read_header(&mut self) -> Result<Header, Error> {
-        assert_eq!(self.state, State::Signature);
-
-        let mut next_value = || -> Option<String> {
-            if let Some(line) = self.line_reader.next() {
-                if line.len() > 0 {
-                    if let Ok(s) = String::from_utf8(line) {
-                        if s.is_ascii() {
-                            return Some(s)
-                        }
+    fn next_value(&mut self) -> Option<String> {
+        if let Some(line) = self.line_reader.next() {
+            if line.len() > 0 {
+                if line[0] == b'#' {
+                    // COMMENT LINE
+                    return self.next_value();
+                }
+                if let Ok(s) = String::from_utf8(line) {
+                    if s.is_ascii() {
+                        return Some(s)
                     }
                 }
             }
-            None
-        };
+        }
+        None
+    }
+    
+    pub fn read_header(&mut self) -> Result<Header, Error> {
+        assert_eq!(self.state, State::Signature);
 
         let width: u64 = {
-            match next_value() {
+            match self.next_value() {
                 Some(val) => {
                     if let Ok(v) = val.parse::<u64>() {
                         v
@@ -118,7 +122,7 @@ impl<RS: Read + Seek> Decoder<RS> {
         };
 
         let height: u64 = {
-            match next_value() {
+            match self.next_value() {
                 Some(val) => {
                     if let Ok(v) = val.parse::<u64>() {
                         v
@@ -131,7 +135,7 @@ impl<RS: Read + Seek> Decoder<RS> {
         };
 
         let maxval: u16 = {
-            match next_value() {
+            match self.next_value() {
                 Some(val) => {
                     if let Ok(v) = val.parse::<u16>() {
                         v
