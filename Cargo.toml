@@ -11,6 +11,13 @@ path = "src/png.rs"
 name = "pam"
 path = "src/pam.rs"
 
+[[bin]]
+name = "ppm"
+path = "src/ppm.rs"
+
+[[bin]]
+name = "netpbm"
+path = "src/netpbm.rs"
 
 [dependencies]
 crc = "1.8.1"
