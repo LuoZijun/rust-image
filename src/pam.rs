@@ -2,6 +2,13 @@
 #![allow(unused_variables, unused_imports, unused_mut)]
 
 
+// http://netpbm.sourceforge.net/doc/pam.html
+
+
+mod netpbm;
+
+pub use self::netpbm::{ PAM_BINARY_MAGIC_NUMBER, Lines };
+
 use std::io;
 use std::fmt;
 use std::mem;
@@ -13,10 +20,6 @@ use std::fs::{ File, OpenOptions };
 use std::time::{ Duration, Instant };
 use std::io::{ Read, Write, Seek, SeekFrom };
 
-
-// http://netpbm.sourceforge.net/doc/pam.html
-
-pub const SIGNATURE: [u8; 2] = [80, 55]; // b"P7"
 
 
 #[derive(Debug)]
@@ -113,127 +116,56 @@ pub enum State {
     Data,
 }
 
-pub struct Decoder<Handle: Read + Seek> {
+pub struct Decoder<RS: Read + Seek> {
     state: State,
-    handle: Handle,
+    line_reader: Lines<RS>,
     pixels_size: u64,
 }
 
-impl<Handle: Read + Seek> Decoder<Handle> {
+impl<RS: Read + Seek> Decoder<RS> {
 
-    pub fn new(handle: Handle) -> Self {
+    pub fn new(handle: RS) -> Self {
         Decoder {
             state: State::Pending,
-            handle: handle,
+            line_reader: Lines { handle: handle },
             pixels_size: 0,
         }
     }
 
-    fn is_whitespace(&self, byte: u8) -> bool {
-        // https://en.wikipedia.org/wiki/Whitespace_character
-        // https://doc.rust-lang.org/beta/reference/whitespace.html
-        // https://internals.rust-lang.org/t/should-bufread-lines-et-al-recognize-more-than-just-lf/1735/11
-        // 
-        // Tab  : 0x9   9 \t
-        // LF   : 0xa  10 \n
-        // CR   : 0xd  13 \r
-        // Blank: 0x20 32
-        // 
-        // U+0009 (horizontal tab, '\t')
-        // U+000A (line feed, '\n')
-        // U+000B (vertical tab)
-        // U+000C (form feed)
-        // U+000D (carriage return, '\r')
-        // U+0020 (space, ' ')
-        // U+0085 (next line)
-        // U+200E (left-to-right mark)
-        // U+200F (right-to-left mark)
-        // U+2028 (line separator)
-        // U+2029 (paragraph separator)
-        match byte {
-            b'\t' | b'\n' | b' ' | 11 | b'\r' => true,
-            _ => false,
-        }
-    }
-
-    fn is_newline(&self, byte: u8) -> bool {
-        // https://en.wikipedia.org/wiki/Newline
-        match byte {
-            b'\n' | b'\r' => true,
-            _ => false,
-        }
-    }
-
-    fn read_line_terminator(&mut self) -> Option<[u8; 2]> {
-        let mut buffer = [0u8; 2];
-
-        match self.handle.read(&mut buffer[..1]) {
-            Ok(amt) => {
-                if amt == 0 {
-                    return None;
-                }
-
-                assert_eq!(amt, 1);
-                let code = buffer[0];
-
-                if !self.is_whitespace(code) {
-                    return None;
-                } 
-
-                if code != b'\r'  {
-                    return Some(buffer);
-                }
-
-                // FIXME: Support `\r\n` and `\n\r` ?
-                if let Ok(amt) = self.handle.read(&mut buffer[1..]) {
-                    if amt == 0 {
-                        return None;
-                    }
-                    assert_eq!(amt, 1);
-
-                    let code = buffer[1];
-                    if code != b'\n'  {
-                        // back
-                        let pos = self.handle.seek(SeekFrom::Current(0)).unwrap();
-                        self.handle.seek(SeekFrom::Start(pos - 1)).unwrap();
-                        buffer[1] = 0u8;
-                    }
-
-                    return Some(buffer);
-                } else {
-                    return Some(buffer);
-                }
-            },
-            Err(_) => None,
-        }
-    }
-
     pub fn read_signature(&mut self) -> Result<[u8; 2], Error> {
-        let mut buffer = [0u8; 2];
-        
-        self.handle.seek(SeekFrom::Start(0)).unwrap();
+        assert_eq!(self.state, State::Pending);
+        self.line_reader.handle.seek(SeekFrom::Start(0)).unwrap();
 
-        match self.handle.read_exact(&mut buffer) {
-            Ok(_) => {
+        if let Some(line) = self.line_reader.next() {
+            if line.len() == 2 {
                 self.state = State::Signature;
-                let signature = buffer;
-
-                assert_eq!(self.read_line_terminator().is_some(), true);
-                // let line_terminator = self.read_line_terminator();
-                // println!("Line terminator: {:?}", line_terminator);
-                // assert_eq!(line_terminator.is_some(), true);
-
-                Ok(signature)
-            },
-            Err(io_error) => Err(io_error.into())
+                return Ok([ line[0], line[1], ])
+            }
         }
+
+        Err(Error::InvalidSignature)
+    }
+
+    fn next_value(&mut self) -> Option<String> {
+        if let Some(line) = self.line_reader.next() {
+            if line.len() > 0 {
+                if line[0] == b'#' {
+                    // COMMENT LINE
+                    return self.next_value();
+                }
+                if let Ok(s) = String::from_utf8(line) {
+                    if s.is_ascii() {
+                        return Some(s)
+                    }
+                }
+            }
+        }
+        None
     }
 
     pub fn read_header(&mut self) -> Result<Header, Error> {
         assert_eq!(self.state, State::Signature);
 
-        let mut buffer: [u8; 8] = [0u8; 8];
-        
         let mut width: Option<u64> = None;
         let mut height: Option<u64> = None;
         // number of planes or channels
@@ -246,93 +178,89 @@ impl<Handle: Read + Seek> Decoder<Handle> {
         let mut tupltype: Option<Color> = None;
 
         loop {
-            assert_eq!(self.handle.read(&mut buffer[..1]).unwrap(), 1);
-            let first_char = buffer[0];
-            let keysize = match first_char {
-                b'W' => 5,
-                b'H' => 6,
-                b'D' => 5,
-                b'M' => 6,
-                b'T' => 8,
-                b'E' => 6,
-                b'#' => {
-                    // Comment Line
-                    loop {
-                        assert_eq!(self.handle.read(&mut buffer[1..2]).unwrap(), 1);
-                        
-                        if self.is_newline(buffer[1]) {
-                            let pos = self.handle.seek(SeekFrom::Current(0)).unwrap();
-                            self.handle.seek(SeekFrom::Start(pos - 1)).unwrap();
-                            break;
-                        }
-                    }
-                    assert_eq!(self.read_line_terminator().is_some(), true);
-                    continue;
-                },
-                c @ _ => {
-                    println!("Unknow First Char: {:?}", first_char as char);
-                    return Err(Error::InvalidHeader)
-                },
-            };
-            self.handle.read(&mut buffer[1..keysize]).unwrap();
-
-            assert_eq!(self.read_line_terminator().is_some(), true);
-
-            if first_char == b'E' {
-                assert_eq!(&buffer[..keysize], b"ENDHDR");
+            
+            if width.is_some() && height.is_some() &
+                & depth.is_some() && maxval.is_some() 
+                && tupltype.is_some() {
                 break;
             }
 
-            let mut val_buffer: [u8; 1] = [0u8; 1];
-            let mut value: Vec<u8> = Vec::new();
-            let mut value_index = 0usize;
-            loop {
-                assert_eq!(self.handle.read(&mut val_buffer).unwrap(), 1);
-                
-                if self.is_whitespace(val_buffer[0]) {
-                    let pos = self.handle.seek(SeekFrom::Current(0)).unwrap();
-                    self.handle.seek(SeekFrom::Start(pos - 1)).unwrap();
-                    break;
-                } else {
-                    value.push(val_buffer[0]);
-                }
+            match self.next_value() {
+                Some(val) => match val.as_ref() {
+                    "WIDTH" => {
+                        assert_eq!(width.is_none(), true);
+                        match self.next_value() {
+                            Some(val) => {
+                                if let Ok(v) = val.parse::<u64>() {
+                                    width = Some(v);
+                                } else {
+                                    return Err(Error::InvalidHeader);
+                                }
+                            },
+                            None => return Err(Error::InvalidHeader),
+                        }
+                    },
+                    "HEIGHT" => {
+                        match self.next_value() {
+                            Some(val) => {
+                                assert_eq!(height.is_none(), true);
+                                if let Ok(v) = val.parse::<u64>() {
+                                    height = Some(v);
+                                } else {
+                                    return Err(Error::InvalidHeader);
+                                }
+                            },
+                            None => return Err(Error::InvalidHeader),
+                        }
+                    },
+                    "DEPTH" => {
+                        match self.next_value() {
+                            Some(val) => {
+                                assert_eq!(depth.is_none(), true);
+                                if let Ok(v) = val.parse::<u8>() {
+                                    depth = Some(v);
+                                } else {
+                                    return Err(Error::InvalidHeader);
+                                }
+                            },
+                            None => return Err(Error::InvalidHeader),
+                        }
+                    },
+                    "MAXVAL" => {
+                        match self.next_value() {
+                            Some(val) => {
+                                assert_eq!(maxval.is_none(), true);
+                                if let Ok(v) = val.parse::<u16>() {
+                                    maxval = Some(v);
+                                } else {
+                                    return Err(Error::InvalidHeader);
+                                }
+                            },
+                            None => return Err(Error::InvalidHeader),
+                        }
+                    },
+                    "TUPLTYPE" => {
+                        match self.next_value() {
+                            Some(val) => {
+                                assert_eq!(tupltype.is_none(), true);
+                                if let Ok(v) = val.parse::<Color>() {
+                                    tupltype = Some(v);
+                                } else {
+                                    return Err(Error::InvalidHeader);
+                                }
+                            },
+                            None => return Err(Error::InvalidHeader),
+                        }
+                    },
+                    "ENDHDR" => {
+                        break;
+                    },
+                    _ => {
+                        return Err(Error::InvalidHeader)
+                    }
+                },
+                None => return Err(Error::InvalidHeader),
             }
-
-            let val_str = String::from_utf8(value).unwrap();
-
-            match first_char {
-                b'W' => {
-                    assert_eq!(&buffer[..keysize], b"WIDTH");
-                    assert_eq!(width.is_none(), true);
-                    width = Some(val_str.parse::<u64>().unwrap());
-                },
-                b'H' => {
-                    assert_eq!(&buffer[..keysize], b"HEIGHT");
-                    assert_eq!(height.is_none(), true);
-                    height = Some(val_str.parse::<u64>().unwrap());
-                },
-                b'D' => {
-                    assert_eq!(&buffer[..keysize], b"DEPTH");
-                    assert_eq!(depth.is_none(), true);
-                    depth = Some(val_str.parse::<u8>().unwrap());
-                },
-                b'M' => {
-                    assert_eq!(&buffer[..keysize], b"MAXVAL");
-                    assert_eq!(maxval.is_none(), true);
-                    maxval = Some(val_str.parse::<u16>().unwrap());
-                },
-                b'T' => {
-                    assert_eq!(&buffer[..keysize], b"TUPLTYPE");
-                    assert_eq!(tupltype.is_none(), true);
-                    tupltype = Some(val_str.parse::<Color>().unwrap());
-                },
-                b'E' => {
-                    unreachable!();
-                },
-                _ => unreachable!(),
-            }
-
-            assert_eq!(self.read_line_terminator().is_some(), true);
         }
 
         if width.is_none() || height.is_none() || depth.is_none() 
@@ -363,7 +291,7 @@ impl<Handle: Read + Seek> Decoder<Handle> {
         assert_eq!(self.state, State::Header);
         assert_eq!(self.pixels_size > 0, true);
 
-        let pos = self.handle.seek(SeekFrom::Current(0)).unwrap();
+        let pos = self.line_reader.handle.seek(SeekFrom::Current(0)).unwrap();
 
         self.state = State::Data;
 
@@ -465,7 +393,7 @@ fn main (){
         match elem {
             Element::Signature(signature) => {
                 println!("Signature: {:?}", signature);
-                assert_eq!(signature, SIGNATURE);
+                assert_eq!(signature, PAM_BINARY_MAGIC_NUMBER);
             },
             Element::Header(header) => {
                 println!("{:?}", header);
