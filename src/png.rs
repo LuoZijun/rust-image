@@ -19,7 +19,7 @@ use std::time::{ Duration, Instant };
 use std::io::{ Read, Write, Seek, SeekFrom };
 
 
-/**
+/*
 
 PNG Specification, version 1.0:
     http://www.libpng.org/pub/png/spec/1.0/
@@ -34,7 +34,7 @@ Portable Network Graphics (PNG) Specification (Second Edition):
 PNG Extensions and Register:
     http://www.libpng.org/pub/png/spec/register/
 
-**/
+*/
 
 #[derive(Debug)]
 pub enum Error {
