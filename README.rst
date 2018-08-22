@@ -15,7 +15,7 @@
 
 *   PNG
 *   PAM
-*   PPM(TODO)
+*   PPM
 
 测试
 ----------
@@ -27,8 +27,10 @@
     curl "https://avatars0.githubusercontent.com/u/717717" -o ./output.jpg
     ffmpeg -i output.jpg output.png
     ffmpeg -i output.jpg output.pam
+    ffmpeg -i output.jpg output.ppm
 
     cargo run --bin png
+    cargo run --bin ppm
     cargo run --bin pam
 
 
@@ -36,7 +38,8 @@
 参考
 -------
 
-`Portable Network Graphics (PNG) Specification (Second Edition) <https://www.w3.org/TR/PNG/>`_
+`PNG <https://www.w3.org/TR/PNG/>`_ , Portable Network Graphics Specification (Second Edition)
 
-`Portable Arbitrary Map (PAM) <http://netpbm.sourceforge.net/doc/pam.html>`_
+`PAM <http://netpbm.sourceforge.net/doc/pam.html>`_ , Portable Arbitrary Map
 
+`PPM <http://netpbm.sourceforge.net/doc/ppm.html>`_ , Netpbm color image format
