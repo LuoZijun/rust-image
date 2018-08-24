@@ -1,5 +1,5 @@
 #![feature(try_from, const_fn, duration_as_u128, nll)]
-#![allow(unused_variables, unused_imports, unused_mut)]
+#![allow(unused_variables, unused_imports, unused_mut, dead_code, unused_attributes)]
 
 use std::iter::Iterator;
 use std::fs::{ File, OpenOptions };
@@ -75,7 +75,10 @@ impl<RS: Read + Seek> Iterator for Lines<RS> {
                         }
                     }
 
-                    return if line.len() > 0 { Some(line) } else { None };
+                    if line.len() > 0 {
+                        return Some(line)
+                    }
+                    
                 } else {
                     line.push(byte);
                 }
